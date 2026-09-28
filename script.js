@@ -37,7 +37,6 @@ const monthFilters = document.querySelector("#month-filters");
 const importCandidateList = document.querySelector("#import-candidate-list");
 const selectionSummary = document.querySelector("#selection-summary");
 const selectFilteredButton = document.querySelector("#select-filtered");
-const deselectFilteredButton = document.querySelector("#deselect-filtered");
 const importSelectedButton = document.querySelector("#excel-import-selected");
 const candidateForm = document.querySelector("#excel-candidate-form");
 const candidateTitleInput = document.querySelector("#candidate-title");
@@ -50,6 +49,14 @@ const candidateMemoInput = document.querySelector("#candidate-memo");
 const importsModal = document.querySelector("#imports-modal");
 const importsList = document.querySelector("#imports-list");
 const importsEmpty = document.querySelector("#imports-empty");
+const comparisonFileInput = document.querySelector("#comparison-file-input");
+const comparisonModal = document.querySelector("#comparison-modal");
+const comparisonRange = document.querySelector("#comparison-range");
+const comparisonSummary = document.querySelector("#comparison-summary");
+const comparisonFilters = document.querySelector("#comparison-filters");
+const comparisonList = document.querySelector("#comparison-list");
+const comparisonSelectionSummary = document.querySelector("#comparison-selection-summary");
+const selectComparisonFilteredButton = document.querySelector("#select-comparison-filtered");
 
 const today = startOfDay(new Date());
 const state = {
@@ -71,7 +78,21 @@ const excelState = {
   candidates: [],
   unparsedCandidates: [],
   monthFilter: 0,
+  analysisYear: null,
   editingCandidateId: null,
+};
+
+const comparisonState = {
+  importId: null,
+  oldEvents: [],
+  importScope: null,
+  dateFrom: "",
+  dateTo: "",
+  fileName: "",
+  results: [],
+  summary: null,
+  filter: "all",
+  lastFocusedElement: null,
 };
 
 const weekdayNames = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"];
@@ -482,10 +503,11 @@ function analyzeWorkbook() {
   excelState.candidates = result.events.map((event, index) => ({
     ...event,
     candidateId: `candidate-${index + 1}`,
-    selected: true,
+    selected: false,
     duplicate: false,
   }));
   excelState.unparsedCandidates = result.unparsedCandidates;
+  excelState.analysisYear = result.year;
   excelState.monthFilter = 0;
   refreshDuplicateFlags();
 
@@ -588,11 +610,14 @@ function updateSelectionUI() {
   const filteredCandidates = getCandidatesForCurrentFilter();
   const filteredSelectedCount = filteredCandidates.filter((candidate) => candidate.selected).length;
   const totalSelectedCount = excelState.candidates.filter((candidate) => candidate.selected).length;
+  const areAllFilteredCandidatesSelected = filteredCandidates.length > 0
+    && filteredSelectedCount === filteredCandidates.length;
   const filterLabel = excelState.monthFilter ? `${excelState.monthFilter}월` : "전체";
 
   selectionSummary.textContent = `${filterLabel} 일정 ${filteredCandidates.length}개 · ${filteredSelectedCount}개 선택`;
+  selectFilteredButton.textContent = areAllFilteredCandidatesSelected ? "전체 해제" : "전체 선택";
+  selectFilteredButton.dataset.action = areAllFilteredCandidatesSelected ? "deselect" : "select";
   selectFilteredButton.disabled = filteredCandidates.length === 0;
-  deselectFilteredButton.disabled = filteredCandidates.length === 0;
   importSelectedButton.textContent = `선택한 일정 가져오기 (${totalSelectedCount})`;
   importSelectedButton.disabled = totalSelectedCount === 0;
 }
@@ -730,12 +755,26 @@ function importSelectedExcelEvents() {
   }
 
   const importId = createImportId();
+  const importScope = determineImportScope(importable);
+  const importedCandidateIds = new Set(importable.map((candidate) => candidate.candidateId));
+  const baselineIdByCandidate = new Map();
+  const baselineEvents = getCandidatesInImportScope(importScope).map((candidate, index) => {
+    const baselineId = `baseline_${index + 1}`;
+    baselineIdByCandidate.set(candidate.candidateId, baselineId);
+    const { candidateId, selected, duplicate, ...event } = candidate;
+    return {
+      ...event,
+      baselineId,
+      wasImported: importedCandidateIds.has(candidateId),
+    };
+  });
   const importedEvents = importable.map(({ candidateId, selected: isSelected, duplicate, ...candidate }) => ({
     ...candidate,
     id: createEventId(),
     sourceType: "excel",
     sourceName: "영화의전당",
     importId,
+    baselineId: baselineIdByCandidate.get(candidateId) || "",
   }));
   const importRecord = {
     id: importId,
@@ -743,6 +782,9 @@ function importSelectedExcelEvents() {
     fileName: excelState.fileName,
     importedAt: new Date().toISOString(),
     eventCount: importedEvents.length,
+    importScope,
+    baselineVersion: 1,
+    baselineEvents,
   };
   state.events.push(...importedEvents);
   state.imports.push(importRecord);
@@ -754,6 +796,24 @@ function importSelectedExcelEvents() {
   closeExcelModal();
   selectDate(parseDateKey(firstImportedDate));
   showToast(`${importedEvents.length}개의 일정을 가져왔습니다.${skippedCount ? ` 중복 ${skippedCount}개 제외` : ""}`);
+}
+
+function determineImportScope(importableCandidates) {
+  if (!excelState.monthFilter) return { type: "all" };
+  const year = Number(excelState.analysisYear || importableCandidates[0]?.date?.slice(0, 4));
+  const month = excelState.monthFilter;
+  const allImportedInsideFilter = importableCandidates.every((candidate) => (
+    Number(candidate.date.slice(0, 4)) === year && Number(candidate.date.slice(5, 7)) === month
+  ));
+  return allImportedInsideFilter ? { type: "month", year, month } : { type: "all" };
+}
+
+function getCandidatesInImportScope(importScope) {
+  if (importScope.type === "all") return excelState.candidates;
+  return excelState.candidates.filter((candidate) => (
+    Number(candidate.date.slice(0, 4)) === importScope.year
+      && Number(candidate.date.slice(5, 7)) === importScope.month
+  ));
 }
 
 function openImportsModal() {
@@ -818,18 +878,281 @@ function createImportRecordRow(record, relatedEvents, isLegacy) {
     label.textContent = "기록 보존 대상";
     row.append(content, label);
   } else {
+    const actions = document.createElement("div");
+    actions.className = "import-record-actions";
+    const compareButton = document.createElement("button");
+    compareButton.type = "button";
+    compareButton.className = "import-record-compare";
+    compareButton.textContent = "새 파일과 비교";
+    compareButton.addEventListener("click", () => startImportComparison(record.id));
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "import-record-delete";
     deleteButton.textContent = "삭제";
     deleteButton.addEventListener("click", () => deleteImportRecord(record.id));
-    row.append(content, deleteButton);
+    actions.append(compareButton, deleteButton);
+    row.append(content, actions);
   }
   return row;
 }
 
 function formatImportDate(date) {
   return date.replaceAll("-", ".");
+}
+
+function startImportComparison(importId) {
+  const importRecord = state.imports.find((record) => record.id === importId);
+  if (!importRecord?.importScope || !Array.isArray(importRecord.baselineEvents)) {
+    showToast("이 가져오기는 업데이트 비교 정보가 없습니다. 새로운 Excel 가져오기부터 사용할 수 있습니다.");
+    return;
+  }
+
+  const baselineEvents = importRecord.baselineEvents.filter((event) => isValidCandidateDate(event.date));
+  const dates = baselineEvents.map((event) => event.date).sort();
+  comparisonState.importId = importId;
+  comparisonState.oldEvents = baselineEvents;
+  comparisonState.importScope = importRecord.importScope;
+  if (importRecord.importScope.type === "month") {
+    const { year, month } = importRecord.importScope;
+    comparisonState.dateFrom = formatDateKey(new Date(year, month - 1, 1));
+    comparisonState.dateTo = formatDateKey(new Date(year, month, 0));
+  } else {
+    comparisonState.dateFrom = dates[0] || "";
+    comparisonState.dateTo = dates[dates.length - 1] || "";
+  }
+  comparisonState.lastFocusedElement = document.activeElement;
+  comparisonFileInput.value = "";
+  comparisonFileInput.click();
+}
+
+async function handleComparisonFile(file) {
+  if (!file) return;
+  if (!isExcelFile(file)) {
+    showToast("Excel 파일(.xlsx, .xls)만 선택할 수 있습니다.");
+    return;
+  }
+
+  try {
+    const { workbook } = await readWorkbook(file);
+    const parsed = window.ExcelParser.parseWorkbook(workbook, file.name);
+    const scopedNewEvents = filterEventsByImportScope(parsed.events, comparisonState.importScope);
+    const comparison = window.ExcelCompare.compareEvents(comparisonState.oldEvents, scopedNewEvents);
+    comparisonState.fileName = file.name;
+    comparisonState.results = comparison.results.map((result) => ({ ...result, selected: false }));
+    comparisonState.summary = comparison.summary;
+    comparisonState.filter = "all";
+
+    console.log("Excel comparison date range", comparisonState.dateFrom, comparisonState.dateTo);
+    console.table(comparison.results.map((result) => ({
+      status: result.status,
+      date: result.newEvent?.date || result.oldEvent?.date || result.newEvents?.[0]?.date || result.oldEvents?.[0]?.date || "",
+      title: result.newEvent?.title || result.oldEvent?.title || result.newEvents?.[0]?.title || result.oldEvents?.[0]?.title || "",
+      changes: result.changes?.map((change) => change.field).join(", ") || "",
+    })));
+
+    closeImportsModal();
+    openComparisonModal();
+  } catch (error) {
+    console.error("Excel 일정 비교 오류", error);
+    showToast("새 Excel 파일을 분석하지 못했습니다.");
+  } finally {
+    comparisonFileInput.value = "";
+  }
+}
+
+function filterEventsByImportScope(events, importScope) {
+  const validEvents = events.filter((event) => isValidCandidateDate(event.date));
+  if (importScope?.type !== "month") return validEvents;
+  return validEvents.filter((event) => (
+    Number(event.date.slice(0, 4)) === importScope.year
+      && Number(event.date.slice(5, 7)) === importScope.month
+  ));
+}
+
+function openComparisonModal() {
+  renderComparisonReview();
+  comparisonModal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeComparisonModal() {
+  comparisonModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  comparisonState.lastFocusedElement?.focus();
+}
+
+function renderComparisonReview() {
+  const summary = comparisonState.summary || { added: 0, changed: 0, removed: 0, unchanged: 0, ambiguous: 0 };
+  const scopeLabel = comparisonState.importScope?.type === "month"
+    ? `${comparisonState.importScope.year}년 ${comparisonState.importScope.month}월`
+    : "전체 범위";
+  comparisonRange.textContent = `${scopeLabel} · ${comparisonState.fileName}`;
+  comparisonSummary.replaceChildren(...[
+    ["추가", summary.added],
+    ["변경", summary.changed],
+    ["삭제", summary.removed],
+    ["변경 없음", summary.unchanged],
+    ...(summary.ambiguous ? [["판단 보류", summary.ambiguous]] : []),
+  ].map(([label, count]) => {
+    const item = document.createElement("span");
+    item.textContent = `${label} ${count}`;
+    return item;
+  }));
+  renderComparisonFilters();
+  renderComparisonResults();
+}
+
+function renderComparisonFilters() {
+  const summary = comparisonState.summary || {};
+  const filters = [
+    ["all", "전체"],
+    ["added", "추가"],
+    ["changed", "변경"],
+    ["removed", "삭제"],
+    ["unchanged", "변경 없음"],
+  ];
+  if (summary.ambiguous) filters.push(["ambiguous", "판단 보류"]);
+
+  comparisonFilters.replaceChildren(...filters.map(([value, label]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `comparison-filter${comparisonState.filter === value ? " active" : ""}`;
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      comparisonState.filter = value;
+      renderComparisonFilters();
+      renderComparisonResults();
+    });
+    return button;
+  }));
+}
+
+function renderComparisonResults() {
+  const visibleResults = comparisonState.results.filter((result) => (
+    comparisonState.filter === "all" || result.status === comparisonState.filter
+  ));
+  comparisonList.replaceChildren(...visibleResults.map(createComparisonItem));
+  updateComparisonSelectionUI();
+  if (!visibleResults.length) {
+    const empty = document.createElement("p");
+    empty.className = "comparison-empty";
+    empty.textContent = "해당하는 변경사항이 없습니다.";
+    comparisonList.appendChild(empty);
+  }
+}
+
+function isSelectableComparisonResult(result) {
+  return ["added", "changed", "removed"].includes(result.status);
+}
+
+function getSelectableComparisonResultsForFilter() {
+  return comparisonState.results.filter((result) => (
+    isSelectableComparisonResult(result)
+      && (comparisonState.filter === "all" || result.status === comparisonState.filter)
+  ));
+}
+
+function setComparisonResultsSelected(selected) {
+  getSelectableComparisonResultsForFilter().forEach((result) => { result.selected = selected; });
+  renderComparisonResults();
+}
+
+function updateComparisonSelectionUI() {
+  const filteredSelectable = getSelectableComparisonResultsForFilter();
+  const filteredSelected = filteredSelectable.filter((result) => result.selected).length;
+  const allSelected = comparisonState.results.filter((result) => isSelectableComparisonResult(result) && result.selected).length;
+  const areAllFilteredResultsSelected = filteredSelectable.length > 0
+    && filteredSelected === filteredSelectable.length;
+  comparisonSelectionSummary.textContent = `현재 필터 ${filteredSelected}/${filteredSelectable.length}개 선택 · 전체 ${allSelected}개 선택`;
+  selectComparisonFilteredButton.textContent = areAllFilteredResultsSelected ? "전체 해제" : "전체 선택";
+  selectComparisonFilteredButton.dataset.action = areAllFilteredResultsSelected ? "deselect" : "select";
+  selectComparisonFilteredButton.disabled = filteredSelectable.length === 0;
+}
+
+function createComparisonItem(result) {
+  const labels = { added: "추가", changed: "변경", removed: "삭제", unchanged: "변경 없음", ambiguous: "판단 보류" };
+  const item = document.createElement("article");
+  item.className = "comparison-item";
+  item.dataset.status = result.status;
+
+  let selectionControl;
+  if (isSelectableComparisonResult(result)) {
+    selectionControl = document.createElement("input");
+    selectionControl.type = "checkbox";
+    selectionControl.className = "comparison-check";
+    selectionControl.checked = result.selected;
+    selectionControl.setAttribute("aria-label", `${labels[result.status]} 일정 선택`);
+    selectionControl.addEventListener("change", () => {
+      result.selected = selectionControl.checked;
+      updateComparisonSelectionUI();
+    });
+  } else {
+    selectionControl = document.createElement("span");
+    selectionControl.className = "comparison-check-placeholder";
+    selectionControl.setAttribute("aria-hidden", "true");
+  }
+
+  const status = document.createElement("span");
+  status.className = "comparison-status";
+  status.textContent = labels[result.status];
+
+  const content = document.createElement("div");
+  const event = result.newEvent || result.oldEvent || result.newEvents?.[0] || result.oldEvents?.[0];
+  const date = document.createElement("p");
+  date.className = "comparison-item-date";
+  const parsedDate = parseDateKey(event.date);
+  date.textContent = `${parsedDate.getMonth() + 1}월 ${parsedDate.getDate()}일`;
+  const title = document.createElement("p");
+  title.className = "comparison-item-title";
+  title.textContent = result.status === "ambiguous"
+    ? `${event.title} · 기존 ${result.oldEvents.length}개 / 새 파일 ${result.newEvents.length}개`
+    : event.title;
+  content.append(date, title);
+
+  const metaText = [event.startTime, event.venue].filter(Boolean).join(" · ");
+  if (metaText) {
+    const meta = document.createElement("p");
+    meta.className = "comparison-item-meta";
+    meta.textContent = metaText;
+    content.appendChild(meta);
+  }
+
+  if ((result.oldEvent || result.oldEvents?.length) && !result.wasImported) {
+    const importState = document.createElement("p");
+    importState.className = "comparison-import-state";
+    importState.textContent = "이전 가져오기에서 선택하지 않은 일정";
+    content.appendChild(importState);
+  }
+
+  if (result.changes?.length) {
+    const changes = document.createElement("div");
+    changes.className = "comparison-changes";
+    result.changes.forEach((change) => {
+      const row = document.createElement("div");
+      row.className = "comparison-change";
+      const field = document.createElement("span");
+      field.textContent = getComparisonFieldLabel(change.field);
+      const values = document.createElement("span");
+      values.textContent = `${change.oldValue || "없음"} → ${change.newValue || "없음"}`;
+      row.append(field, values);
+      changes.appendChild(row);
+    });
+    content.appendChild(changes);
+  }
+
+  item.append(selectionControl, status, content);
+  return item;
+}
+
+function getComparisonFieldLabel(field) {
+  return ({
+    startTime: "시작 시간",
+    endTime: "종료 시간",
+    venue: "장소",
+    eventType: "일정 유형",
+    memo: "메모",
+    sourceName: "출처",
+  })[field] || field;
 }
 
 function deleteImportRecord(importId) {
@@ -862,6 +1185,7 @@ function resetExcelUpload() {
   excelState.candidates = [];
   excelState.unparsedCandidates = [];
   excelState.monthFilter = 0;
+  excelState.analysisYear = null;
   excelState.editingCandidateId = null;
   excelError.hidden = true;
   excelSheetList.replaceChildren();
@@ -889,12 +1213,14 @@ document.querySelector("#cancel-modal").addEventListener("click", closeEventModa
 document.querySelector("#excel-modal-close").addEventListener("click", closeExcelModal);
 document.querySelector("#excel-cancel").addEventListener("click", closeExcelModal);
 document.querySelector("#imports-modal-close").addEventListener("click", closeImportsModal);
+document.querySelector("#comparison-modal-close").addEventListener("click", closeComparisonModal);
 document.querySelector("#excel-reselect").addEventListener("click", resetExcelUpload);
 document.querySelector("#excel-next").addEventListener("click", analyzeWorkbook);
 document.querySelector("#excel-review-back").addEventListener("click", showExcelUploadResult);
 importSelectedButton.addEventListener("click", importSelectedExcelEvents);
-selectFilteredButton.addEventListener("click", () => setFilteredCandidatesSelected(true));
-deselectFilteredButton.addEventListener("click", () => setFilteredCandidatesSelected(false));
+selectFilteredButton.addEventListener("click", () => {
+  setFilteredCandidatesSelected(selectFilteredButton.dataset.action !== "deselect");
+});
 document.querySelector("#candidate-edit-cancel").addEventListener("click", closeCandidateEditor);
 candidateForm.addEventListener("submit", updateImportCandidate);
 deleteEventButton.addEventListener("click", () => deleteEvent(state.editingEventId));
@@ -902,7 +1228,12 @@ eventForm.addEventListener("submit", handleEventSubmit);
 eventModal.addEventListener("click", (event) => { if (event.target === eventModal) closeEventModal(); });
 excelModal.addEventListener("click", (event) => { if (event.target === excelModal) closeExcelModal(); });
 importsModal.addEventListener("click", (event) => { if (event.target === importsModal) closeImportsModal(); });
+comparisonModal.addEventListener("click", (event) => { if (event.target === comparisonModal) closeComparisonModal(); });
 excelFileInput.addEventListener("change", () => handleExcelFile(excelFileInput.files[0]));
+comparisonFileInput.addEventListener("change", () => handleComparisonFile(comparisonFileInput.files[0]));
+selectComparisonFilteredButton.addEventListener("click", () => {
+  setComparisonResultsSelected(selectComparisonFilteredButton.dataset.action !== "deselect");
+});
 ["dragenter", "dragover"].forEach((eventName) => {
   excelDropZone.addEventListener(eventName, (event) => {
     event.preventDefault();
@@ -921,6 +1252,7 @@ document.addEventListener("keydown", (event) => {
   if (!eventModal.hidden) closeEventModal();
   if (!excelModal.hidden) closeExcelModal();
   if (!importsModal.hidden) closeImportsModal();
+  if (!comparisonModal.hidden) closeComparisonModal();
 });
 
 renderCalendar();

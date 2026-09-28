@@ -148,8 +148,6 @@
             <span class="selection-summary" id="selection-summary"></span>
             <div class="selection-actions">
               <button class="selection-action" id="select-filtered" type="button">전체 선택</button>
-              <span aria-hidden="true">·</span>
-              <button class="selection-action" id="deselect-filtered" type="button">전체 해제</button>
             </div>
           </div>
           <div class="import-candidate-list" id="import-candidate-list"></div>
@@ -209,9 +207,30 @@
       </section>
     </div>
 
+    <input id="comparison-file-input" type="file" accept=".xlsx,.xls" hidden />
+    <div class="modal-backdrop" id="comparison-modal" hidden>
+      <section class="event-modal comparison-modal" role="dialog" aria-modal="true" aria-labelledby="comparison-modal-title">
+        <header class="modal-header">
+          <h2 id="comparison-modal-title">Excel 일정 변경사항 검토</h2>
+          <button class="modal-close" id="comparison-modal-close" type="button" aria-label="닫기">×</button>
+        </header>
+        <p class="comparison-range" id="comparison-range"></p>
+        <div class="comparison-summary" id="comparison-summary"></div>
+        <div class="comparison-filters" id="comparison-filters" aria-label="변경 상태 필터"></div>
+        <div class="comparison-selection-toolbar">
+          <span class="comparison-selection-summary" id="comparison-selection-summary"></span>
+          <div class="selection-actions">
+            <button class="selection-action" id="select-comparison-filtered" type="button">전체 선택</button>
+          </div>
+        </div>
+        <div class="comparison-list" id="comparison-list"></div>
+      </section>
+    </div>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     <script src="excel-parser.js"></script>
+    <script src="excel-compare.js"></script>
     <script src="script.js"></script>
   </body>
 </html>

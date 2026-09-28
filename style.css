@@ -557,6 +557,133 @@ button {
   text-align: center;
 }
 
+.import-record-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.import-record-compare {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #4f5964;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.import-record-compare:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.comparison-modal {
+  width: min(700px, 100%);
+}
+
+.comparison-range {
+  margin: -5px 0 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.comparison-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-strong);
+  border-bottom: 1px solid var(--line);
+  color: #444;
+  font-size: 11px;
+}
+
+.comparison-filters {
+  display: flex;
+  gap: 5px;
+  margin: 14px 0 8px;
+}
+
+.comparison-filter {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.comparison-filter.active {
+  border-color: #777;
+  color: var(--ink);
+}
+
+.comparison-list {
+  max-height: 430px;
+  overflow-y: auto;
+}
+
+.comparison-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  margin-bottom: 3px;
+}
+
+.comparison-selection-summary {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.comparison-item {
+  display: grid;
+  grid-template-columns: 20px 54px minmax(0, 1fr);
+  gap: 12px;
+  padding: 13px 2px;
+  border-bottom: 1px solid #eeeeec;
+}
+
+.comparison-check {
+  margin-top: 1px;
+}
+
+.comparison-check-placeholder {
+  width: 14px;
+}
+
+.comparison-status {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.comparison-item[data-status="added"] .comparison-status { color: #586b5b; }
+.comparison-item[data-status="changed"] .comparison-status { color: #766443; }
+.comparison-item[data-status="removed"] .comparison-status { color: #835858; }
+.comparison-item-date { margin: 0; color: var(--muted); font-size: 10px; }
+.comparison-item-title { margin: 4px 0 0; color: var(--ink); font-size: 13px; font-weight: 600; }
+.comparison-item-meta { margin: 5px 0 0; color: #555; font-size: 11px; }
+.comparison-import-state { margin: 5px 0 0; color: #8a6845; font-size: 10px; }
+
+.comparison-changes {
+  margin-top: 9px;
+  padding-top: 7px;
+  border-top: 1px solid #f0f0ee;
+}
+
+.comparison-change {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.comparison-empty { margin: 36px 0; color: var(--muted); font-size: 12px; text-align: center; }
+
 .excel-modal:has(#excel-review-view:not([hidden])) {
   width: min(720px, 100%);
 }
